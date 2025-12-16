@@ -6,7 +6,7 @@ on:
 
 env:
   IMAGE_NAME: python-hello
-  REGISTRY: docker.io/${{ secrets.DOCKER_USERNAME }}
+  REGISTRY: docker.io/${{ secrets.DOCKER_USERNAME }}  # e.g. somerandomdev2
   NAMESPACE: demo
 
 jobs:
@@ -30,12 +30,13 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest   # Add latest for easy testing
 
       - name: Update image tag in K8s manifest
         run: |
           sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/deployment.yaml
-          sed -i "s|DOCKER_REGISTRY|${{ env.REGISTRY }}|g" k8s/deployment.yaml
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -45,30 +46,30 @@ jobs:
       - name: Set kubeconfig
         run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
 
-      - name: Deploy manifests (ordered)
+      - name: Deploy manifests
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          kubectl apply -f k8s/namespace.yaml \
-                        -f k8s/deployment.yaml \
-                        -f k8s/service.yaml
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml   # Apply service last
 
-      - name: Debug pod events if rollout fails
+      - name: Wait for rollout & debug on failure
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }} --timeout=180s || {
-            echo "====== POD STATUS ======"
-            kubectl get pods -n ${{ env.NAMESPACE }} -l app=myapp
-            echo "====== RECENT EVENTS ======"
-            kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
+          kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }} --timeout=300s || {
+            echo "====== PODS ======"
+            kubectl get pods -n ${{ env.NAMESPACE }} -l app=myapp -o wide
+            echo "====== EVENTS ======"
+            kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -30
             echo "====== ROLLING BACK ======"
             kubectl rollout undo deployment/myapp -n ${{ env.NAMESPACE }}
-            kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }}
             exit 1
           }
 
       - name: Show access URL
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          NODE_IP=$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
           NODE_PORT=$(kubectl get svc myapp -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}')
           echo "👉 App live at: http://${NODE_IP}:${NODE_PORT}"
+          echo "Test with: curl http://${NODE_IP}:${NODE_PORT}"

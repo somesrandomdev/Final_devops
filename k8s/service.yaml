@@ -4,8 +4,10 @@ metadata:
   name: myapp
   namespace: demo
 spec:
-  type: ClusterIP
-  selector: { app: myapp }
+  type: NodePort
+  selector:
+    app: myapp
   ports:
   - port: 80
-    targetPort: 5000
+    targetPort: 8000
+    nodePort: 30080   # Optional: fix to a specific port (30000-32767), or remove for auto-assign
