@@ -48,21 +48,21 @@ jobs:
       - name: Deploy manifests (ordered) & verify rollout
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          # create namespace first, then app, then service
+          # namespace → deployment → service
           kubectl apply -f k8s/namespace.yaml \
                         -f k8s/deployment.yaml \
                         -f k8s/service.yaml
-          # wait for rollout inside the correct namespace
-          kubectl rollout status deployment/python-hello -n ${{ env.NAMESPACE }} --timeout=300s || {
+          # rollout check uses REAL name "myapp"
+          kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }} --timeout=300s || {
             echo "Rollout failed – rolling back"
-            kubectl rollout undo deployment/python-hello -n ${{ env.NAMESPACE }}
-            kubectl rollout status deployment/python-hello -n ${{ env.NAMESPACE }}
+            kubectl rollout undo deployment/myapp -n ${{ env.NAMESPACE }}
+            kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }}
             exit 1
           }
 
-      - name: Expose URL (NodePort helper)
+      - name: Show access URL
         run: |
           export KUBECONFIG=$PWD/kubeconfig
           NODE_IP=$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
           NODE_PORT=$(kubectl get svc myapp -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}')
-          echo "App should be reachable at: http://${NODE_IP}:${NODE_PORT}"
+          echo "👉 App live at: http://${NODE_IP}:${NODE_PORT}"
