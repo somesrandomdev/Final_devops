@@ -1,103 +1,55 @@
-name: CI-CD-Pipeline
+name: CI-CD-Python-App
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      rollback:
-        description: 'Rollback to previous revision'
-        required: false
-        default: 'false'
+    branches: [ main ]
 
 env:
-  IMAGE_NAME: myapp   # Docker Hub repo (they must create it once)
+  IMAGE_NAME: python-hello
+  REGISTRY: docker.io/${{ secrets.DOCKER_USERNAME }}
 
 jobs:
-  ci:
+  build-test-push-deploy:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.meta.outputs.tags }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Check secrets
-        run: |
-          [[ -z "${{ secrets.DOCKER_USERNAME }}" ]] && echo "Missing DOCKER_USERNAME" && exit 1
-          [[ -z "${{ secrets.DOCKER_PASSWORD }}" ]] && echo "Missing DOCKER_PASSWORD" && exit 1
-          [[ -z "${{ secrets.KUBE_CONFIG }}" ]]     && echo "Missing KUBE_CONFIG"     && exit 1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Lint
-        run: |
-          if [ -f Makefile ]; then make lint; fi
-          # fallback: ruff if no Makefile
-          if [ ! -f Makefile ] && [ -f requirements.txt ]; then
-            pip install -q ruff
-            ruff check .
-          fi
-      - name: Test
-        run: |
-          if [ -f Makefile ]; then make test; fi
-          if [ ! -f Makefile ] && [ -f requirements.txt ]; then
-            pip install -q pytest
-            pytest
-          fi
-
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
-          tags: type=sha,prefix={{branch}}-
-
-      - uses: docker/login-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - uses: docker/build-push-action@v5
+      - name: Build & push image
+        uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
-  cd:
-    needs: ci
-    runs-on: ubuntu-latest
-    if: github.event.inputs.rollback != 'true'
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
-      - run: chmod 600 kubeconfig
-      - name: Patch image
+      - name: Update image tag in K8s manifest
         run: |
-          sudo apt-get install -y gettext-base  # for envsubst
-          export IMAGE="${{ needs.ci.outputs.tag }}"
-          envsubst '$IMAGE' < k8s/deployment.yaml.template > k8s/deployment.yaml
-          # fallback if no template
-          if [ ! -f k8s/deployment.yaml.template ]; then
-            sed -i "s|image:.*|image: ${IMAGE}|" k8s/deployment.yaml
-          fi
-      - run: |
-          export KUBECONFIG=$PWD/kubeconfig
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl rollout status deployment/myapp -n demo --timeout=300s
-      - run: |
-          export KUBECONFIG=$PWD/kubeconfig
-          kubectl run curl-smoke --rm -i --restart=Never --image=curlimages/curl \
-            -- curl -f http://myapp.demo.svc.cluster.local/health || exit 1
+          sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/deployment.yaml
+          sed -i "s|DOCKER_REGISTRY|${{ env.REGISTRY }}|g" k8s/deployment.yaml
 
-  rollback:
-    if: ${{ failure() || github.event.inputs.rollback == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
-      - run: |
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.30.0'
+
+      - name: Set kubeconfig
+        run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
+
+      - name: Deploy and verify rollout
+        run: |
           export KUBECONFIG=$PWD/kubeconfig
-          kubectl rollout undo deployment/myapp -n demo
-          kubectl rollout status deployment/myapp -n demo --timeout=180s
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/python-hello --timeout=300s || {
+            kubectl rollout undo deployment/python-hello
+            kubectl rollout status deployment/python-hello
+            exit 1
+          }
