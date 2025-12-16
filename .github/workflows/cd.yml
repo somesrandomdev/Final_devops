@@ -45,16 +45,22 @@ jobs:
       - name: Set kubeconfig
         run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
 
-      - name: Deploy manifests (ordered) & verify rollout
+      - name: Deploy manifests (ordered)
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          # namespace → deployment → service
           kubectl apply -f k8s/namespace.yaml \
                         -f k8s/deployment.yaml \
                         -f k8s/service.yaml
-          # rollout check uses REAL name "myapp"
-          kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }} --timeout=300s || {
-            echo "Rollout failed – rolling back"
+
+      - name: Debug pod events if rollout fails
+        run: |
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }} --timeout=180s || {
+            echo "====== POD STATUS ======"
+            kubectl get pods -n ${{ env.NAMESPACE }} -l app=myapp
+            echo "====== RECENT EVENTS ======"
+            kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
+            echo "====== ROLLING BACK ======"
             kubectl rollout undo deployment/myapp -n ${{ env.NAMESPACE }}
             kubectl rollout status deployment/myapp -n ${{ env.NAMESPACE }}
             exit 1
