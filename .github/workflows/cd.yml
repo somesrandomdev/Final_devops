@@ -30,9 +30,12 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            GIT_HASH=${{ github.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest   # Add latest for easy testing
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            # latest tag added for easy manual testing
 
       - name: Update image tag in K8s manifest
         run: |
@@ -44,14 +47,15 @@ jobs:
           version: 'v1.30.0'
 
       - name: Set kubeconfig
-        run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
 
       - name: Deploy manifests
         run: |
           export KUBECONFIG=$PWD/kubeconfig
           kubectl apply -f k8s/namespace.yaml
           kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml   # Apply service last
+          kubectl apply -f k8s/service.yaml
 
       - name: Wait for rollout & debug on failure
         run: |
