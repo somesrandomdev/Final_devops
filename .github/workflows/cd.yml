@@ -35,7 +35,6 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            # latest tag added for easy manual testing
 
       - name: Update image tag in K8s manifest
         run: |
