@@ -7,6 +7,7 @@ on:
 env:
   IMAGE_NAME: python-hello
   REGISTRY: docker.io/${{ secrets.DOCKER_USERNAME }}
+  NAMESPACE: demo
 
 jobs:
   build-test-push-deploy:
@@ -44,12 +45,24 @@ jobs:
       - name: Set kubeconfig
         run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > kubeconfig
 
-      - name: Deploy and verify rollout
+      - name: Deploy manifests (ordered) & verify rollout
         run: |
           export KUBECONFIG=$PWD/kubeconfig
-          kubectl apply -f k8s/
-          kubectl rollout status deployment/python-hello --timeout=300s || {
-            kubectl rollout undo deployment/python-hello
-            kubectl rollout status deployment/python-hello
+          # create namespace first, then app, then service
+          kubectl apply -f k8s/namespace.yaml \
+                        -f k8s/deployment.yaml \
+                        -f k8s/service.yaml
+          # wait for rollout inside the correct namespace
+          kubectl rollout status deployment/python-hello -n ${{ env.NAMESPACE }} --timeout=300s || {
+            echo "Rollout failed – rolling back"
+            kubectl rollout undo deployment/python-hello -n ${{ env.NAMESPACE }}
+            kubectl rollout status deployment/python-hello -n ${{ env.NAMESPACE }}
             exit 1
           }
+
+      - name: Expose URL (NodePort helper)
+        run: |
+          export KUBECONFIG=$PWD/kubeconfig
+          NODE_IP=$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+          NODE_PORT=$(kubectl get svc myapp -n ${{ env.NAMESPACE }} -o jsonpath='{.spec.ports[0].nodePort}')
+          echo "App should be reachable at: http://${NODE_IP}:${NODE_PORT}"
