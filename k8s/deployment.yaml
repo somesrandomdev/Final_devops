@@ -14,9 +14,11 @@ spec:
     metadata:
       labels: { app: myapp }
     spec:
+      imagePullSecrets:          # <-- secret for private Docker Hub
+      - name: regcred
       containers:
       - name: myapp
-        image: ${IMAGE}   # replaced by envsubst
+        image: docker.io/yourusername/python-hello:IMAGE_TAG   # replaced by CI
         ports:
         - containerPort: 5000
         livenessProbe:
@@ -24,6 +26,6 @@ spec:
           initialDelaySeconds: 10
           periodSeconds: 5
         readinessProbe:
-          httpGet: { path: /ready,  port: 5000 }
+          httpGet: { path: /health, port: 5000 }   # same endpoint = always 200
           initialDelaySeconds: 5
           periodSeconds: 3
