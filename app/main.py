@@ -10,14 +10,10 @@ GIT_HASH = os.getenv("GIT_HASH", "unknown")[:7]
 @app.get("/")
 async def root():
     return {
-        "message": "Hello le prof, tout marche !",
-        "version": "1.0.0",
-        "commit": GIT_HASH
+        "message": "Hello le prof, tout marche ! CI/CD fully working 🚀",
+        "git_hash": os.getenv("GIT_HASH", "unknown")
     }
 
 @app.get("/health")
 async def health():
-    # Simpler: FastAPI auto-sets 200 for dict return
-    return {"status": "OK"}
-    # Or keep JSONResponse if you prefer explicit control
-    # return JSONResponse(status_code=200, content={"status": "OK"})
+    return {"status": "healthy", "git_hash": os.getenv("GIT_HASH", "unknown")}

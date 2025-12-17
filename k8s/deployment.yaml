@@ -27,15 +27,15 @@ spec:
         - containerPort: 8000
         livenessProbe:
           httpGet:
-            path: /health   # Add this endpoint in app.py for best practice
+            path: /health
             port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          failureThreshold: 3
+          initialDelaySeconds: 30   # ← Increased from 10 to allow Uvicorn startup
+          periodSeconds: 10
+          failureThreshold: 6
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 5
-          periodSeconds: 3
-          failureThreshold: 3
+          initialDelaySeconds: 20   # ← Increased from 5 to allow Uvicorn startup
+          periodSeconds: 5
+          failureThreshold: 6
